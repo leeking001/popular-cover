@@ -5,7 +5,7 @@ import requests
 # 建议填入 Key，实现真正的一键生成
 INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec" 
 INTERNAL_MODEL = "openai/gpt-5.1"
-API_URL = "https://api.360.cn/v1/chat/completions"
+API_URL = "https://api.360.cn/v1/images/generations"
 
 # --- 1. 页面样式 ---
 st.set_page_config(page_title="爆款封面一键生成", page_icon="⚡", layout="centered")
