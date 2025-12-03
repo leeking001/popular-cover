@@ -1,14 +1,14 @@
 import streamlit as st
 import requests
 
-# --- 0. 核心配置 (后台黑盒) ---
-# 建议把 Key 填在这里，用户打开就能用，真正实现“一键”
+# --- 0. 核心配置 ---
+# 建议填入 Key，实现真正的一键生成
 INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec" 
 INTERNAL_MODEL = "google/gemini-3-pro-image-preview"
 API_URL = "https://api.360.cn/v1/images/generations"
 
-# --- 1. 页面样式 (去干扰) ---
-st.set_page_config(page_title="封面一键生成", page_icon="⚡", layout="centered")
+# --- 1. 页面样式 ---
+st.set_page_config(page_title="爆款封面一键生成", page_icon="⚡", layout="centered")
 st.markdown("""
 <style>
     #MainMenu, footer, header {visibility: hidden;}
@@ -19,28 +19,24 @@ st.markdown("""
 
 # --- 2. 逻辑处理 ---
 def parse_input(text):
-    """自动拆分主副标题，用空格分隔"""
     if not text: return "", ""
-    parts = text.strip().split(' ', 1) # 只切分第一个空格
+    parts = text.strip().split(' ', 1)
     if len(parts) == 2:
         return parts[0], parts[1]
-    return parts[0], "" # 只有主标题
+    return parts[0], ""
 
 def generate_cover(api_key, raw_text, size_opt, audience):
-    # 1. 解析标题
     m_title, s_title = parse_input(raw_text)
-    if not s_title: s_title = " " # 避免空值报错
+    if not s_title: s_title = " "
     
-    # 2. 尺寸映射 (主流平台标准)
     size_map = {
         "16:9 (视频)": "1024x576",
         "3:4 (笔记)": "768x1024",
         "4:3 (文章)": "1024x768"
     }
     size_str = size_map[size_opt]
-    ratio_desc = size_opt.split(' ')[0] # 提取 16:9 等
+    ratio_desc = size_opt.split(' ')[0]
 
-    # 3. 你的严格咒语模板
     prompt = f"""
     为主标题是<{m_title}>副标题是<{s_title}>的内容设计一张封面图，
     尺寸为<{ratio_desc}>，
@@ -60,7 +56,10 @@ def generate_cover(api_key, raw_text, size_opt, audience):
     }
 
     try:
-        res = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+        # 🔥 关键修改：timeout 改为 120 秒 (2分钟)
+        # AI 画图很慢，必须给它足够的时间
+        res = requests.post(API_URL, headers=headers, json=payload, timeout=120)
+        
         if res.status_code == 200:
             data = res.json()
             if 'data' in data and data['data']:
@@ -69,42 +68,36 @@ def generate_cover(api_key, raw_text, size_opt, audience):
         else:
             return None, f"API报错: {res.status_code} - {res.text}"
     except Exception as e:
-        return None, str(e)
+        return None, f"网络错误或超时: {str(e)}"
 
 # --- 3. 极简界面 ---
-st.title("⚡ 封面一键生成")
+st.title("⚡ 爆款封面一键生成")
 
-# 输入区域
 user_input = st.text_input("输入标题 (主标题 空格 副标题)", placeholder="例如：月入过万 AI实战教程")
 
-# 选项区域 (一行排开)
 c1, c2 = st.columns(2)
 with c1:
     size_opt = st.selectbox("尺寸", ["16:9 (视频)", "3:4 (笔记)", "4:3 (文章)"])
 with c2:
     audience = st.selectbox("受众", ["大众通用", "男性向", "女性向"])
 
-# Key 处理 (如果代码里没填，才显示输入框)
 final_key = INTERNAL_API_KEY
 if not final_key:
     final_key = st.text_input("API Key", type="password")
 
-# 生成按钮
 if st.button("🚀 立即生成", type="primary"):
     if not user_input:
         st.toast("⚠️ 请输入标题")
     elif not final_key:
         st.toast("⚠️ 请输入 API Key")
     else:
-        with st.spinner("AI 正在设计排版..."):
-            # 映射受众参数
+        # 提示语改得更有耐心一点
+        with st.spinner("AI 正在精心绘制中，通常需要 1 分钟，请耐心等待..."):
             aud_map = {"大众通用": "通用受众", "男性向": "男性受众", "女性向": "女性受众"}
-            
             url, err = generate_cover(final_key, user_input, size_opt, aud_map[audience])
             
             if url:
                 st.image(url, use_column_width=True)
-                # 居中的下载按钮
                 st.markdown(f"""
                     <a href="{url}" target="_blank" style="
                         display: block; margin: 10px auto; text-align: center;
