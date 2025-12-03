@@ -1,135 +1,170 @@
 import streamlit as st
 from openai import OpenAI
+from PIL import Image, ImageDraw, ImageFont
+import requests
+from io import BytesIO
+import os
 
 # --- 页面配置 ---
-st.set_page_config(page_title="Pro级封面生成器", page_icon="💎", layout="wide")
+st.set_page_config(page_title="全自动封面生成器", page_icon="🎨", layout="wide")
 
-# --- CSS 样式优化 (让界面更好看) ---
-st.markdown("""
-<style>
-    .stButton>button {
-        width: 100%;
-        background-color: #FF4B4B;
-        color: white;
-        font-size: 20px;
-        padding: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
+# --- 1. 字体管理 (关键：解决云端无中文字体问题) ---
+FONT_URL = "https://github.com/StellarCN/scp_zh/raw/master/fonts/SimHei.ttf" # 使用黑体作为备选，稳定
+FONT_PATH = "SimHei.ttf"
 
-# --- 侧边栏 ---
-with st.sidebar:
-    st.title("💎 设置 (Pro版)")
-    api_key = st.text_input("SiliconFlow API Key", type="password")
-    st.markdown("---")
-    st.success("已启用模型：**FLUX.1-dev**\n\n这是目前最强的开源画质模型，擅长生成超写实人像和复杂构图。")
+def load_font(size):
+    """加载字体，如果本地没有则自动下载"""
+    if not os.path.exists(FONT_PATH):
+        with st.spinner("正在下载中文字体文件 (首次运行需要)..."):
+            try:
+                r = requests.get(FONT_URL)
+                with open(FONT_PATH, "wb") as f:
+                    f.write(r.content)
+            except:
+                st.error("字体下载失败，文字可能无法显示。")
+                return None
+    return ImageFont.truetype(FONT_PATH, size)
 
-# --- 主界面 ---
-st.title("💎 自媒体封面生成器 (电影级画质)")
-st.markdown("生成媲美 MrBeast / 影视飓风 的 4K 级封面底图")
+# --- 2. 图片处理逻辑 (加字) ---
+def add_text_overlay(image_url, main_text, sub_text, layout="居中"):
+    # 下载图片到内存
+    response = requests.get(image_url)
+    img = Image.open(BytesIO(response.content))
+    draw = ImageDraw.Draw(img)
+    W, H = img.size
 
-col1, col2 = st.columns([1, 1])
-with col1:
-    main_title = st.text_input("封面主题/标题", "月入过万")
-    audience = st.selectbox("目标受众", ["男性受众 (生成美女)", "女性受众 (生成帅哥)", "通用 (生成极客)"])
-    emotion = st.selectbox("人物表情", ["惊讶/震撼 (高点击)", "自信/微笑 (专业感)", "思考/严肃 (干货感)"])
-
-with col2:
-    ratio_opt = st.selectbox("封面比例", ["16:9 (横屏视频)", "3:4 (小红书)", "9:16 (抖音)"])
-    # 高级选项
-    style = st.selectbox("视觉风格", ["写实摄影 (Realism)", "3D 渲染 (C4D Style)", "赛博朋克 (Cyberpunk)"])
-
-# --- 核心逻辑 ---
-def generate_image_flux_pro(prompt, size_str):
-    # 必须检查 Key
-    if not api_key:
-        return None, "请先输入 API Key"
-
-    client = OpenAI(
-        api_key=api_key, # 使用侧边栏输入的变量
-        base_url="https://api.siliconflow.cn/v1" 
-    )
+    # --- 主标题设置 ---
+    # 动态计算字号：大约占图片宽度的 1/8 到 1/5
+    main_font_size = int(W / 8) 
+    main_font = load_font(main_font_size)
     
+    # --- 副标题设置 ---
+    sub_font_size = int(main_font_size * 0.5)
+    sub_font = load_font(sub_font_size)
+
+    if not main_font: return img # 字体加载失败直接返回原图
+
+    # --- 颜色配置 (爆款风格：黄字+黑边，或白字+黑边) ---
+    text_color = "#FFFFFF" # 白色
+    stroke_color = "#000000" # 黑色描边
+    stroke_width = int(main_font_size / 15) # 描边粗细
+
+    # --- 计算文字位置 ---
+    # 获取主标题宽高
+    bbox = draw.textbbox((0, 0), main_text, font=main_font)
+    w_text, h_text = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    # 获取副标题宽高
+    bbox_sub = draw.textbbox((0, 0), sub_text, font=sub_font)
+    w_sub, h_sub = bbox_sub[2] - bbox_sub[0], bbox_sub[3] - bbox_sub[1]
+
+    # 布局逻辑
+    if layout == "居中":
+        x_main = (W - w_text) / 2
+        y_main = (H - h_text) / 2 - h_sub # 稍微偏上
+        x_sub = (W - w_sub) / 2
+        y_sub = y_main + h_text + 20
+    elif layout == "底部":
+        x_main = (W - w_text) / 2
+        y_main = H - h_text - h_sub - 100
+        x_sub = (W - w_sub) / 2
+        y_sub = y_main + h_text + 20
+    elif layout == "左侧":
+        x_main = 50
+        y_main = (H - h_text) / 2
+        x_sub = 50
+        y_sub = y_main + h_text + 20
+
+    # --- 绘制主标题 (带描边) ---
+    # 描边原理：在上下左右偏移位置画黑字，最后在中间画白字
+    draw.text((x_main, y_main), main_text, font=main_font, fill=text_color, stroke_width=stroke_width, stroke_fill=stroke_color)
+    
+    # --- 绘制副标题 (带背景框) ---
+    # 画一个半透明背景框给副标题
+    padding = 10
+    if sub_text:
+        # 绘制副标题文字 (带细描边)
+        draw.text((x_sub, y_sub), sub_text, font=sub_font, fill="#FFD700", stroke_width=3, stroke_fill="black") # 金色字
+
+    return img
+
+# --- 3. AI 生成逻辑 ---
+def generate_image_flux(api_key, prompt, size_str):
+    client = OpenAI(api_key=api_key, base_url="https://api.siliconflow.cn/v1")
     try:
         response = client.images.generate(
-            # 🔥 关键升级：使用 dev 版本，画质极高
-            model="black-forest-labs/FLUX.1-dev", 
+            model="black-forest-labs/FLUX.1-dev", # 使用高画质版
             prompt=prompt,
             size=size_str,
             n=1,
         )
-        return response.data[0].url, None
+        return response.data[0].url
     except Exception as e:
-        return None, str(e)
+        st.error(f"AI生成出错: {e}")
+        return None
 
-# --- 咒语构建 (电影级 Prompt) ---
-def build_pro_prompt(topic, aud, emo, ratio, style_choice):
-    # 1. 人物设定 (增加细节描述)
-    if aud.startswith("男性"):
-        person = "a stunningly beautiful female influencer, detailed skin texture, natural makeup"
-    elif aud.startswith("女性"):
-        person = "a charismatic handsome male creator, sharp jawline, stubble, detailed eyes"
-    else:
-        person = "a cool tech geek with glasses, futuristic vibe"
+# --- 4. 界面 UI ---
+with st.sidebar:
+    st.title("🎨 设置")
+    api_key = st.text_input("SiliconFlow API Key", type="password")
+    st.info("提示：程序会自动下载中文字体，合成到图片上。")
 
-    # 2. 表情设定
-    if "惊讶" in emo:
-        face = "shocked expression, mouth open, eyes wide, hands on head, extreme emotion"
-    elif "自信" in emo:
-        face = "confident smirk, pointing at camera, engaging eye contact"
-    else:
-        face = "deep in thought, analytical look, serious professional expression"
+st.title("🎨 全自动封面生成器 (AI绘图 + 自动排版)")
 
-    # 3. 风格与光影 (这是高级感的来源)
-    if "写实" in style_choice:
-        visuals = "Shot on Sony A7R IV, 85mm lens, f/1.8, depth of field, bokeh, studio lighting, rim light, 8k resolution, hyper-realistic, raw photo"
-    elif "3D" in style_choice:
-        visuals = "C4D render, Octane render, clay material, 3D illustration, bright candy colors, high gloss, masterpiece"
-    else:
-        visuals = "Neon lights, cyberpunk city background, blue and pink color palette, high contrast, cinematic fog"
+col1, col2 = st.columns([1, 1])
+with col1:
+    main_title = st.text_input("主标题 (大字)", "月入过万")
+    sub_title = st.text_input("副标题 (小字)", "AI实战教程")
+    layout_mode = st.selectbox("文字位置", ["居中", "底部", "左侧"])
+    
+with col2:
+    audience = st.selectbox("画面主体", ["美女主持", "帅哥主持", "极客/程序员", "无人物/纯背景"])
+    ratio_opt = st.selectbox("比例", ["16:9 (横屏)", "3:4 (竖屏)"])
 
-    # 4. 尺寸逻辑
-    ar = "16:9" if "16:9" in ratio else ("3:4" if "3:4" in ratio else "9:16")
-
-    # 5. 最终拼接
-    # FLUX Dev 喜欢自然语言，但也吃关键词堆叠
-    prompt = f"""
-    High quality YouTube thumbnail background.
-    Subject: {person}, {face}.
-    Theme: {topic}.
-    Composition: Center composition, subject slightly to the side to leave space for text.
-    Visuals: {visuals}.
-    Quality: Masterpiece, best quality, ultra-detailed, sharp focus, professional color grading.
-    Aspect Ratio: {ar}.
-    (No text, clean background).
-    """
-    return prompt
-
-# --- 尺寸映射 ---
-size_map = {
-    "16:9 (横屏视频)": "1024x576",
-    "3:4 (小红书)": "768x1024",
-    "9:16 (抖音)": "576x1024"
-}
-
-# --- 执行按钮 ---
-if st.button("🚀 生成大师级封面", type="primary"):
+# --- 执行逻辑 ---
+if st.button("🚀 生成封面", type="primary"):
     if not api_key:
-        st.error("❌ 也就是没填 API Key，去侧边栏填一下！")
+        st.warning("请填写 API Key")
     else:
-        final_prompt = build_pro_prompt(main_title, audience, emotion, ratio_opt, style)
+        # 1. 构建 Prompt (强制要求留白，不要AI写字)
+        size_map = {"16:9 (横屏)": "1024x576", "3:4 (竖屏)": "768x1024"}
         
-        # 显示 Prompt 让你知道 AI 到底在画什么
-        with st.expander("查看生成的咒语"):
-            st.code(final_prompt)
+        if audience == "美女主持":
+            subject = "beautiful asian female host, professional, smiling"
+        elif audience == "帅哥主持":
+            subject = "handsome male host, confident"
+        elif audience == "极客/程序员":
+            subject = "tech geek with glasses, coding atmosphere"
+        else:
+            subject = "clean 3d abstract background, high tech"
 
-        with st.spinner('正在调用 FLUX.1-dev 进行 4K 渲染 (约需 10-20 秒)...'):
-            img_url, error_msg = generate_image_flux_pro(final_prompt, size_map[ratio_opt])
-            
-        if error_msg:
-            st.error(f"出错啦: {error_msg}")
-        elif img_url:
-            st.success("✅ 生成成功！")
-            st.image(img_url, use_column_width=True)
-            st.markdown(f"### [📥 点击下载高清原图]({img_url})")
-            st.info("💡 建议：把这张图放进 PPT 或 醒图，加上大大的标题，就是一张百万爆款封面！")
+        # 关键 Prompt：Negative space (留白)
+        prompt = f"""
+        YouTube thumbnail. {subject}.
+        Composition: Subject on the side, large negative space in the {layout_mode.replace('左侧','right').replace('居中','center').replace('底部','top')} for text overlay.
+        Style: High quality, 8k, studio lighting, depth of field.
+        (No text, no watermark, clean background).
+        """
+        
+        with st.spinner("1. AI 正在绘制底图 (FLUX.1-dev)..."):
+            img_url = generate_image_flux(api_key, prompt, size_map[ratio_opt])
+        
+        if img_url:
+            with st.spinner("2. Python 正在进行排版合成..."):
+                # 调用合成函数
+                final_img = add_text_overlay(img_url, main_title, sub_title, layout_mode)
+                
+                # 展示结果
+                st.success("✅ 生成完成！")
+                st.image(final_img, caption="最终效果图", use_column_width=True)
+                
+                # 提供下载
+                buf = BytesIO()
+                final_img.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+                st.download_button(
+                    label="📥 下载最终封面",
+                    data=byte_im,
+                    file_name="cover.png",
+                    mime="image/png"
+                )
