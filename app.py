@@ -30,7 +30,7 @@ with col2:
 def generate_image_flux(prompt, size_str):
     # 关键修改点 1: 配置 Base URL 为硅基流动地址
     client = OpenAI(
-        api_key=sk-nytxinkfozqypfcmrdsoyjujxkvxgkdediprwjojvllofazq,
+        api_key=api_key,
         base_url="https://api.siliconflow.cn/v1" 
     )
     
