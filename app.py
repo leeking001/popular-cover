@@ -4,13 +4,14 @@ from PIL import Image
 from io import BytesIO
 import zipfile
 
-# --- 0. 核心配置 (绝密区域) ---
+# --- 0. 核心配置 (绝密区域 - 用户不可见) ---
 # 🔴 必填：在此填入你的 Key
 INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec"  
-# 🔴 核心模型 (用户不可见)
+# 🔴 指定模型 (后台锁定)
 INTERNAL_MODEL = "dall-e-3" 
-# 接口地址
-API_URL = "https://api.360.cn/v1/images/generations" 
+# 🔴 接口地址 (建议使用 SiliconFlow 或 OpenAI 官方/代理，确保支持 DALL-E 3)
+# 如果使用 360 且报错 400，说明 360 不支持 DALL-E 3，请更换 Key 或地址
+API_URL = "https://api.siliconflow.cn/v1/images/generations" 
 
 # --- 1. 页面配置与中文极客风 UI ---
 st.set_page_config(page_title="爆款封面一键生成", page_icon="🔥", layout="wide")
@@ -23,7 +24,7 @@ st.markdown("""
         color: #E0E0E0;
     }
     
-    /* 标题样式 */
+    /* 标题样式 - 霓虹发光 */
     .neon-title {
         font-family: "Microsoft YaHei", sans-serif;
         font-size: 3rem;
@@ -69,6 +70,7 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(0, 97, 255, 0.6);
     }
     
+    /* 隐藏所有干扰元素 */
     #MainMenu, footer, header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
@@ -79,15 +81,14 @@ if 'generated_images' not in st.session_state:
 if 'zip_data' not in st.session_state:
     st.session_state.zip_data = None
 
-# --- 3. 核心逻辑 (黑盒) ---
+# --- 3. 核心逻辑 (黑盒处理) ---
 def process_hidden_logic(image_url):
-    """后台静默处理图像数据"""
+    """后台静默切图"""
     try:
         response = requests.get(image_url, timeout=60)
         img = Image.open(BytesIO(response.content))
         width, height = img.size
         mid_w, mid_h = width // 2, height // 2
-        
         return [
             img.crop((0, 0, mid_w, mid_h)),
             img.crop((mid_w, 0, width, mid_h)),
@@ -121,23 +122,17 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
             parts = line.split(' ', 1)
             items.append({"m": parts[0], "s": parts[1] if len(parts) > 1 else ""})
 
-    # 2. 智能画布适配 (隐形逻辑)
-    if "16:9" in ratio_opt:
-        canvas_size = "1792x1024" # 宽屏画布 -> 切出 16:9
-        ratio_desc = "Wide 16:9 aspect ratio"
-    elif "3:4" in ratio_opt:
-        canvas_size = "1024x1792" # 竖屏画布 -> 切出 9:16/3:4
-        ratio_desc = "Vertical 9:16 aspect ratio"
-    else:
-        canvas_size = "1024x1024"
-        ratio_desc = "Square 1:1 aspect ratio"
+    # 2. 尺寸逻辑 (通过 Prompt 控制内容比例，画布统一 1024x1024 以兼容所有 API)
+    if "16:9" in ratio_opt: ratio_desc = "Wide 16:9 aspect ratio content"
+    elif "3:4" in ratio_opt: ratio_desc = "Vertical 9:16 aspect ratio content"
+    else: ratio_desc = "Square 1:1 aspect ratio content"
 
     # 3. 受众逻辑 (你的核心咒语)
     char_prompt = "an expressive content creator"
     if "男性" in audience_type: char_prompt = "an attractive female host (appealing to male audience)"
     elif "女性" in audience_type: char_prompt = "a handsome male host (appealing to female audience)"
 
-    # 4. 🔥 核心咒语 (已封印) 🔥
+    # 4. 🔥 核心咒语 (已封印，外界不可见) 🔥
     prompt = f"""
     I NEED THE EXACT PROMPT FOLLOWED. DO NOT REWRITE.
     Generate a single image that is a 2x2 GRID containing 4 distinct thumbnails.
@@ -147,7 +142,7 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
     2. Layout: Character interwoven with text. High-end design.
     3. Style Reference: MrBeast, MediaStorm, XiaoLinShuo.
     4. Text: Must include Main Title & Subtitle.
-    5. Aspect Ratio of each grid cell: {ratio_desc}.
+    5. Content Aspect Ratio: {ratio_desc}.
     
     [Quadrant 1]: Title: "{items[0]['m']}", Sub: "{items[0]['s']}".
     [Quadrant 2]: Title: "{items[1]['m']}", Sub: "{items[1]['s']}".
@@ -162,13 +157,12 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     
+    # 🔥 DALL-E 3 标准 Payload (去除了可能导致 400 的额外参数)
     payload = {
         "model": INTERNAL_MODEL,
         "prompt": prompt,
         "n": 1,
-        "size": canvas_size,
-        "quality": "hd", # 强制 HD 画质
-        "style": "vivid"
+        "size": "1024x1024"
     }
 
     try:
@@ -179,7 +173,7 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
                 return data['data'][0]['url'], None
             return None, "生成成功但无数据"
         else:
-            return None, f"API错误: {res.status_code}"
+            return None, f"API错误 ({res.status_code}): {res.text}"
     except Exception as e:
         return None, str(e)
 
@@ -219,7 +213,7 @@ if generate_btn:
     elif not final_key:
         st.toast("⚠️ 请输入 API Key")
     else:
-        with st.spinner("AI 正在设计 4 套爆款方案 (4K HD)..."):
+        with st.spinner("AI 正在设计 4 套爆款方案..."):
             st.session_state.generated_images = None
             st.session_state.zip_data = None
             
