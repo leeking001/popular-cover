@@ -6,7 +6,7 @@ import zipfile
 
 # --- 0. 核心配置 ---
 INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec"  # 🔴 必填：在此填入 Key
-INTERNAL_MODEL = "google/gemini-3-pro-image-preview" # 或 black-forest-labs/FLUX.1-schnell
+INTERNAL_MODEL = "dall-e-3" # 或 black-forest-labs/FLUX.1-schnell
 API_URL = "https://api.360.cn/v1/images/generations" # 或 https://api.siliconflow.cn/v1/images/generations
 
 # --- 1. 页面配置与中文极客风 UI ---
