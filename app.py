@@ -4,12 +4,12 @@ from PIL import Image
 from io import BytesIO
 import zipfile
 
-# --- 0. 核心配置 (后台配置，用户不可见) ---
-INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec"  # 🔴 请在此填入 Key，实现真正的“一键”
+# --- 0. 核心配置 (后台配置) ---
+INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec"  # 🔴 请在此填入 Key
 INTERNAL_MODEL = "google/gemini-3-pro-image-preview" # 或 black-forest-labs/FLUX.1-schnell
 API_URL = "https://api.360.cn/v1/images/generations" # 或 https://api.siliconflow.cn/v1/images/generations
 
-# --- 1. 页面样式优化 ---
+# --- 1. 页面样式 ---
 st.set_page_config(page_title="爆款封面一键生成", page_icon="🔥", layout="wide")
 st.markdown("""
 <style>
@@ -24,13 +24,6 @@ st.markdown("""
         border-radius: 10px;
         font-weight: bold;
     }
-    .case-card {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 10px;
-        text-align: center;
-        margin-bottom: 10px;
-    }
     .input-hint {
         font-size: 0.9rem;
         color: #666;
@@ -40,7 +33,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 核心逻辑 (隐蔽的拼图技术) ---
+# --- 2. 核心逻辑 ---
 def process_image_data(image_url):
     """后台处理图像数据，返回图片对象列表"""
     try:
@@ -62,7 +55,8 @@ def process_image_data(image_url):
 def create_zip(images, filenames):
     """将多张图片打包成 ZIP"""
     zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, false) as zf:
+    # 🛠️ 修复点：false 改为 False
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zf:
         for img, name in zip(images, filenames):
             img_byte_arr = BytesIO()
             img.save(img_byte_arr, format='PNG')
@@ -70,27 +64,19 @@ def create_zip(images, filenames):
     return zip_buffer.getvalue()
 
 def generate_covers(api_key, raw_input, ratio_opt, audience):
-    # 1. 解析输入：支持单行或多行
     lines = [line.strip() for line in raw_input.split('\n') if line.strip()]
     
-    # 智能策略：
-    # 如果用户只输了1行 -> 生成4张不同风格的变体 (A/B测试)
-    # 如果用户输了4行 -> 每行生成1张
     if len(lines) == 1:
         titles = lines * 4
         styles = ["High Saturation (MrBeast Style)", "Minimalist & Clean", "Cinematic & Professional", "Close-up Emotion"]
     else:
-        # 取前4个，不足的补齐
         titles = (lines + lines)[:4]
         styles = ["Viral Style"] * 4
 
-    # 2. 尺寸 Prompt 修正
-    # 虽然物理切割是正方形，但我们通过 Prompt 让构图适应目标比例
     ratio_prompt = ""
     if "16:9" in ratio_opt: ratio_prompt = "Composition suited for 16:9 video thumbnail"
     elif "3:4" in ratio_opt: ratio_prompt = "Composition suited for 3:4 vertical post"
     
-    # 3. 构建隐蔽的 Grid Prompt
     prompt = f"""
     Create a 2x2 GRID image containing 4 distinct thumbnails. High Quality 8k.
     
@@ -124,17 +110,20 @@ def generate_covers(api_key, raw_input, ratio_opt, audience):
 
 # --- 3. 界面 UI ---
 
-# === 顶部：案例展示 ===
+# === 顶部：案例展示 (🛠️ 修复点：使用真实图片链接) ===
 with st.expander("🔥 查看爆款封面案例 (点击展开)", expanded=True):
+    st.caption("这些是不同风格的爆款封面参考：")
     c1, c2, c3, c4 = st.columns(4)
+    
+    # 使用 Unsplash 的高质量示意图
     with c1:
-        st.markdown('<div class="case-card">💰<br><b>搞钱类</b><br>大字报+真人浮夸</div>', unsafe_allow_html=True)
+        st.image("https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=400&h=225&fit=crop", caption="💰 搞钱/商业类")
     with c2:
-        st.markdown('<div class="case-card">💄<br><b>美妆类</b><br>前后对比+高清特写</div>', unsafe_allow_html=True)
+        st.image("https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=400&h=225&fit=crop", caption="💄 美妆/女性类")
     with c3:
-        st.markdown('<div class="case-card">💻<br><b>干货类</b><br>极简背景+核心关键词</div>', unsafe_allow_html=True)
+        st.image("https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&h=225&fit=crop", caption="💻 科技/干货类")
     with c4:
-        st.markdown('<div class="case-card">🥗<br><b>生活类</b><br>温馨滤镜+生活场景</div>', unsafe_allow_html=True)
+        st.image("https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&h=225&fit=crop", caption="🥗 生活/美食类")
 
 st.title("🔥 爆款封面一键生成")
 st.markdown("AI 智能设计 | 自动排版 | 批量出图")
@@ -151,7 +140,6 @@ with col_setting:
     ratio = st.selectbox("封面比例", ["16:9 (横屏视频)", "3:4 (小红书/笔记)", "1:1 (通用方形)"])
     audience = st.selectbox("目标受众", ["大众/通用", "男性向 (科技/游戏)", "女性向 (美妆/情感)"])
     
-    # Key 处理
     final_key = INTERNAL_API_KEY
     if not final_key:
         final_key = st.text_input("API Key", type="password")
@@ -164,35 +152,29 @@ if st.button("🚀 立即生成 (一次出4张)"):
         st.toast("⚠️ 请输入 API Key")
     else:
         with st.spinner("AI 正在设计 4 套爆款方案，请稍候..."):
-            # 1. 调用生成
             big_url, err = generate_covers(final_key, user_input, ratio, audience)
             
             if big_url:
-                # 2. 后台处理 (切图)
                 images = process_image_data(big_url)
                 
                 if len(images) == 4:
                     st.success("✅ 生成完成！请选择方案：")
                     
-                    # 3. 展示结果 (2x2 布局)
                     r1_c1, r1_c2 = st.columns(2)
                     r2_c1, r2_c2 = st.columns(2)
                     
-                    # 准备文件名
                     file_names = [f"cover_option_{i+1}.png" for i in range(4)]
-                    
-                    # 展示图片
                     preview_cols = [r1_c1, r1_c2, r2_c1, r2_c2]
+                    
                     for idx, img in enumerate(images):
                         with preview_cols[idx]:
                             st.image(img, use_column_width=True)
                             st.caption(f"方案 {idx+1}")
                     
-                    # 4. 下载区域
                     st.markdown("---")
                     dl_col1, dl_col2 = st.columns([1, 1])
                     
-                    # 生成 ZIP
+                    # 🛠️ 修复点：调用修复后的 create_zip
                     zip_data = create_zip(images, file_names)
                     
                     with dl_col1:
