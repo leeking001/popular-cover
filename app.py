@@ -4,7 +4,7 @@ import requests
 # --- 0. 核心配置 ---
 # 建议填入 Key，实现真正的一键生成
 INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec" 
-INTERNAL_MODEL = "openai/gpt-5.1"
+INTERNAL_MODEL = "google/gemini-3-pro-image-preview"
 API_URL = "https://api.360.cn/v1/images/generations"
 
 # --- 1. 页面样式 ---
