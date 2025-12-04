@@ -11,7 +11,7 @@ INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec"
 INTERNAL_MODEL = "dall-e-3" 
 # 🔴 接口地址 (建议使用 SiliconFlow 或 OpenAI 官方/代理，确保支持 DALL-E 3)
 # 如果使用 360 且报错 400，说明 360 不支持 DALL-E 3，请更换 Key 或地址
-API_URL = "https://api.siliconflow.cn/v1/images/generations" 
+API_URL = "https://api.360.cn/v1/images/generations" 
 
 # --- 1. 页面配置与中文极客风 UI ---
 st.set_page_config(page_title="爆款封面一键生成", page_icon="🔥", layout="wide")
