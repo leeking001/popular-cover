@@ -4,10 +4,13 @@ from PIL import Image
 from io import BytesIO
 import zipfile
 
-# --- 0. 核心配置 ---
-INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec"  # 🔴 必填：在此填入 Key
-INTERNAL_MODEL = "dall-e-3" # 或 black-forest-labs/FLUX.1-schnell
-API_URL = "https://api.360.cn/v1/images/generations" # 或 https://api.siliconflow.cn/v1/images/generations
+# --- 0. 核心配置 (绝密区域) ---
+# 🔴 必填：在此填入你的 Key
+INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec"  
+# 🔴 核心模型 (用户不可见)
+INTERNAL_MODEL = "dall-e-3" 
+# 接口地址
+API_URL = "https://api.360.cn/v1/images/generations" 
 
 # --- 1. 页面配置与中文极客风 UI ---
 st.set_page_config(page_title="爆款封面一键生成", page_icon="🔥", layout="wide")
@@ -25,12 +28,12 @@ st.markdown("""
         font-family: "Microsoft YaHei", sans-serif;
         font-size: 3rem;
         font-weight: 900;
-        background: -webkit-linear-gradient(45deg, #FF4B4B, #FF9068);
+        background: -webkit-linear-gradient(45deg, #00C9FF, #92FE9D);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         text-align: center;
         margin-bottom: 5px;
-        text-shadow: 0 0 20px rgba(255, 75, 75, 0.3);
+        text-shadow: 0 0 20px rgba(0, 201, 255, 0.3);
     }
     
     .sub-title {
@@ -56,14 +59,14 @@ st.markdown("""
         padding: 0.8rem;
         border-radius: 8px;
         border: none;
-        background: linear-gradient(90deg, #D4145A, #FBB03B);
+        background: linear-gradient(90deg, #0061ff, #60efff);
         color: white;
-        box-shadow: 0 4px 15px rgba(212, 20, 90, 0.4);
+        box-shadow: 0 4px 15px rgba(0, 97, 255, 0.4);
         transition: all 0.3s ease;
     }
     .stButton>button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(212, 20, 90, 0.6);
+        box-shadow: 0 6px 20px rgba(0, 97, 255, 0.6);
     }
     
     #MainMenu, footer, header {visibility: hidden;}
@@ -76,16 +79,15 @@ if 'generated_images' not in st.session_state:
 if 'zip_data' not in st.session_state:
     st.session_state.zip_data = None
 
-# --- 3. 核心逻辑 ---
-def process_image_data(image_url):
-    """切图逻辑：自动适配画布大小进行2x2切割"""
+# --- 3. 核心逻辑 (黑盒) ---
+def process_hidden_logic(image_url):
+    """后台静默处理图像数据"""
     try:
-        response = requests.get(image_url, timeout=30)
+        response = requests.get(image_url, timeout=60)
         img = Image.open(BytesIO(response.content))
         width, height = img.size
         mid_w, mid_h = width // 2, height // 2
         
-        # 无论画布多大，都从中间切，这样能保证子图比例正确
         return [
             img.crop((0, 0, mid_w, mid_h)),
             img.crop((mid_w, 0, width, mid_h)),
@@ -119,33 +121,31 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
             parts = line.split(' ', 1)
             items.append({"m": parts[0], "s": parts[1] if len(parts) > 1 else ""})
 
-    # 2. 动态计算画布尺寸 (解决比例不对的问题)
-    # 逻辑：如果想要 4 张 16:9 的图，我们需要一张 1792x1024 的大图，切开后每张就是 896x512 (接近16:9)
+    # 2. 智能画布适配 (隐形逻辑)
     if "16:9" in ratio_opt:
-        canvas_size = "1792x1024" # 宽屏画布
-        ratio_desc = "16:9 aspect ratio"
+        canvas_size = "1792x1024" # 宽屏画布 -> 切出 16:9
+        ratio_desc = "Wide 16:9 aspect ratio"
     elif "3:4" in ratio_opt:
-        canvas_size = "1024x1792" # 竖屏画布
-        ratio_desc = "3:4 vertical aspect ratio"
+        canvas_size = "1024x1792" # 竖屏画布 -> 切出 9:16/3:4
+        ratio_desc = "Vertical 9:16 aspect ratio"
     else:
-        canvas_size = "1024x1024" # 正方形画布
+        canvas_size = "1024x1024"
         ratio_desc = "Square 1:1 aspect ratio"
 
-    # 3. 受众逻辑
+    # 3. 受众逻辑 (你的核心咒语)
     char_prompt = "an expressive content creator"
     if "男性" in audience_type: char_prompt = "an attractive female host (appealing to male audience)"
     elif "女性" in audience_type: char_prompt = "a handsome male host (appealing to female audience)"
 
-    # 4. 核心咒语 (解决边框问题)
-    # 增加了 "Seamless", "No frames", "Edge to edge" 等负面约束
+    # 4. 🔥 核心咒语 (已封印) 🔥
     prompt = f"""
-    Create a 2x2 GRID image containing 4 distinct YouTube/Social Media thumbnails.
-    Total Resolution: {canvas_size}.
+    I NEED THE EXACT PROMPT FOLLOWED. DO NOT REWRITE.
+    Generate a single image that is a 2x2 GRID containing 4 distinct thumbnails.
     
     CORE RULES:
     1. Subject: Photorealistic close-up of {char_prompt}.
     2. Layout: Character interwoven with text. High-end design.
-    3. Style Reference: MrBeast, MediaStorm.
+    3. Style Reference: MrBeast, MediaStorm, XiaoLinShuo.
     4. Text: Must include Main Title & Subtitle.
     5. Aspect Ratio of each grid cell: {ratio_desc}.
     
@@ -161,11 +161,14 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
     """
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    
     payload = {
         "model": INTERNAL_MODEL,
         "prompt": prompt,
         "n": 1,
-        "size": canvas_size # 🔥 动态调整画布大小
+        "size": canvas_size,
+        "quality": "hd", # 强制 HD 画质
+        "style": "vivid"
     }
 
     try:
@@ -176,13 +179,6 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
                 return data['data'][0]['url'], None
             return None, "生成成功但无数据"
         else:
-            # 如果 API 不支持非正方形，回退到 1024x1024
-            if "size" in res.text or "400" in str(res.status_code):
-                payload["size"] = "1024x1024"
-                retry_res = requests.post(API_URL, headers=headers, json=payload, timeout=120)
-                if retry_res.status_code == 200:
-                    data = retry_res.json()
-                    return data['data'][0]['url'], "注意：当前模型不支持宽屏画布，已自动回退到正方形。"
             return None, f"API错误: {res.status_code}"
     except Exception as e:
         return None, str(e)
@@ -223,15 +219,14 @@ if generate_btn:
     elif not final_key:
         st.toast("⚠️ 请输入 API Key")
     else:
-        with st.spinner("AI 正在设计 4 套爆款方案 (无边框模式)..."):
+        with st.spinner("AI 正在设计 4 套爆款方案 (4K HD)..."):
             st.session_state.generated_images = None
             st.session_state.zip_data = None
             
             big_url, err = generate_covers(final_key, user_input, ratio, audience)
             
             if big_url:
-                if err: st.toast(err) # 显示回退警告
-                images = process_image_data(big_url)
+                images = process_hidden_logic(big_url)
                 if len(images) == 4:
                     st.session_state.generated_images = images
                     file_names = [f"cover_v{i+1}.png" for i in range(4)]
