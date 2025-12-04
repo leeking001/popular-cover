@@ -20,7 +20,7 @@ st.markdown("""
         color: #E0E0E0;
     }
     
-    /* 标题样式 - 霓虹发光中文 */
+    /* 标题样式 */
     .neon-title {
         font-family: "Microsoft YaHei", sans-serif;
         font-size: 3rem;
@@ -33,7 +33,6 @@ st.markdown("""
         text-shadow: 0 0 20px rgba(255, 75, 75, 0.3);
     }
     
-    /* 副标题 */
     .sub-title {
         text-align: center;
         color: #888;
@@ -42,7 +41,7 @@ st.markdown("""
         letter-spacing: 1px;
     }
 
-    /* 输入框美化 */
+    /* 输入框与按钮美化 */
     .stTextArea textarea, .stTextInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #1E2329 !important;
         color: #fff !important;
@@ -50,7 +49,6 @@ st.markdown("""
         border-radius: 8px !important;
     }
     
-    /* 按钮美化 */
     .stButton>button {
         width: 100%;
         font-size: 1.2rem;
@@ -68,12 +66,11 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(212, 20, 90, 0.6);
     }
     
-    /* 隐藏默认元素 */
     #MainMenu, footer, header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 状态管理 (保证下载不消失) ---
+# --- 2. 状态管理 ---
 if 'generated_images' not in st.session_state:
     st.session_state.generated_images = None
 if 'zip_data' not in st.session_state:
@@ -81,12 +78,14 @@ if 'zip_data' not in st.session_state:
 
 # --- 3. 核心逻辑 ---
 def process_image_data(image_url):
-    """切图逻辑：将 2x2 的大图切成 4 张小图"""
+    """切图逻辑：自动适配画布大小进行2x2切割"""
     try:
         response = requests.get(image_url, timeout=30)
         img = Image.open(BytesIO(response.content))
         width, height = img.size
         mid_w, mid_h = width // 2, height // 2
+        
+        # 无论画布多大，都从中间切，这样能保证子图比例正确
         return [
             img.crop((0, 0, mid_w, mid_h)),
             img.crop((mid_w, 0, width, mid_h)),
@@ -97,7 +96,6 @@ def process_image_data(image_url):
         return []
 
 def create_zip(images, filenames):
-    """打包下载"""
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zf:
         for img, name in zip(images, filenames):
@@ -110,52 +108,56 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
     # 1. 解析输入
     lines = [line.strip() for line in raw_input.split('\n') if line.strip()]
     
-    # 智能分配：如果只有1行标题，生成4种变体；如果有4行，各生成1张
     if len(lines) == 1:
-        # 解析主副标题
         parts = lines[0].split(' ', 1)
         m_title = parts[0]
         s_title = parts[1] if len(parts) > 1 else ""
-        
-        # 准备 4 组数据 (内容一样，风格微调)
-        items = [{"m": m_title, "s": s_title, "style": "High Impact"}] * 4
+        items = [{"m": m_title, "s": s_title}] * 4
     else:
-        # 取前4行
         items = []
         for line in (lines + lines)[:4]:
             parts = line.split(' ', 1)
-            items.append({"m": parts[0], "s": parts[1] if len(parts) > 1 else "", "style": "Viral"})
+            items.append({"m": parts[0], "s": parts[1] if len(parts) > 1 else ""})
 
-    # 2. 尺寸 Prompt
-    ratio_prompt = "16:9 aspect ratio composition"
-    if "3:4" in ratio_opt: ratio_prompt = "3:4 vertical composition"
-    elif "1:1" in ratio_opt: ratio_prompt = "Square composition"
+    # 2. 动态计算画布尺寸 (解决比例不对的问题)
+    # 逻辑：如果想要 4 张 16:9 的图，我们需要一张 1792x1024 的大图，切开后每张就是 896x512 (接近16:9)
+    if "16:9" in ratio_opt:
+        canvas_size = "1792x1024" # 宽屏画布
+        ratio_desc = "16:9 aspect ratio"
+    elif "3:4" in ratio_opt:
+        canvas_size = "1024x1792" # 竖屏画布
+        ratio_desc = "3:4 vertical aspect ratio"
+    else:
+        canvas_size = "1024x1024" # 正方形画布
+        ratio_desc = "Square 1:1 aspect ratio"
 
-    # 3. 受众逻辑 (你的核心咒语逻辑)
-    # 这里将中文选项映射回 Prompt 逻辑
+    # 3. 受众逻辑
     char_prompt = "an expressive content creator"
     if "男性" in audience_type: char_prompt = "an attractive female host (appealing to male audience)"
     elif "女性" in audience_type: char_prompt = "a handsome male host (appealing to female audience)"
 
-    # 4. 🔥 核心咒语构建 (严格恢复你的要求) 🔥
-    # 我们告诉 AI：这是一个 2x2 的网格，但每一格都要严格遵守你的“爆款逻辑”
+    # 4. 核心咒语 (解决边框问题)
+    # 增加了 "Seamless", "No frames", "Edge to edge" 等负面约束
     prompt = f"""
     Create a 2x2 GRID image containing 4 distinct YouTube/Social Media thumbnails.
-    Total Resolution: 8k.
+    Total Resolution: {canvas_size}.
     
-    CORE RULES FOR EACH THUMBNAIL:
-    1. Subject: Photorealistic close-up of {char_prompt}. Expression matches the theme.
-    2. Layout: Character interwoven with text (depth effect). High-end design.
-    3. Style Reference: MrBeast, MediaStorm (影视飓风), XiaoLinShuo (小lin说).
-    4. Text: Must include Main Title & Subtitle. Typography must be designed, not just plain text.
-    5. {ratio_prompt}.
+    CORE RULES:
+    1. Subject: Photorealistic close-up of {char_prompt}.
+    2. Layout: Character interwoven with text. High-end design.
+    3. Style Reference: MrBeast, MediaStorm.
+    4. Text: Must include Main Title & Subtitle.
+    5. Aspect Ratio of each grid cell: {ratio_desc}.
     
-    [Quadrant 1 - Top Left]: Main Title: "{items[0]['m']}", Sub: "{items[0]['s']}".
-    [Quadrant 2 - Top Right]: Main Title: "{items[1]['m']}", Sub: "{items[1]['s']}".
-    [Quadrant 3 - Bottom Left]: Main Title: "{items[2]['m']}", Sub: "{items[2]['s']}".
-    [Quadrant 4 - Bottom Right]: Main Title: "{items[3]['m']}", Sub: "{items[3]['s']}".
+    [Quadrant 1]: Title: "{items[0]['m']}", Sub: "{items[0]['s']}".
+    [Quadrant 2]: Title: "{items[1]['m']}", Sub: "{items[1]['s']}".
+    [Quadrant 3]: Title: "{items[2]['m']}", Sub: "{items[2]['s']}".
+    [Quadrant 4]: Title: "{items[3]['m']}", Sub: "{items[3]['s']}".
     
-    IMPORTANT: Distinct borders between quadrants. Do not mix text between quadrants.
+    CRITICAL: 
+    - SEAMLESS composition within each quadrant.
+    - NO visible borders, NO frames, NO white lines between images.
+    - Images should touch each other directly (Full Bleed).
     """
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
@@ -163,7 +165,7 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
         "model": INTERNAL_MODEL,
         "prompt": prompt,
         "n": 1,
-        "size": "1024x1024"
+        "size": canvas_size # 🔥 动态调整画布大小
     }
 
     try:
@@ -174,17 +176,22 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
                 return data['data'][0]['url'], None
             return None, "生成成功但无数据"
         else:
+            # 如果 API 不支持非正方形，回退到 1024x1024
+            if "size" in res.text or "400" in str(res.status_code):
+                payload["size"] = "1024x1024"
+                retry_res = requests.post(API_URL, headers=headers, json=payload, timeout=120)
+                if retry_res.status_code == 200:
+                    data = retry_res.json()
+                    return data['data'][0]['url'], "注意：当前模型不支持宽屏画布，已自动回退到正方形。"
             return None, f"API错误: {res.status_code}"
     except Exception as e:
         return None, str(e)
 
 # --- 4. 界面布局 ---
 
-# 标题区
 st.markdown('<div class="neon-title">爆款封面一键生成</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">AI 智能设计 · 自动排版 · 批量出图</div>', unsafe_allow_html=True)
 
-# 主控区
 c1, c2 = st.columns([2, 1])
 
 with c1:
@@ -216,17 +223,16 @@ if generate_btn:
     elif not final_key:
         st.toast("⚠️ 请输入 API Key")
     else:
-        with st.spinner("AI 正在执行爆款逻辑：分析受众 -> 匹配人物 -> 穿插排版..."):
-            # 清空旧数据
+        with st.spinner("AI 正在设计 4 套爆款方案 (无边框模式)..."):
             st.session_state.generated_images = None
             st.session_state.zip_data = None
             
             big_url, err = generate_covers(final_key, user_input, ratio, audience)
             
             if big_url:
+                if err: st.toast(err) # 显示回退警告
                 images = process_image_data(big_url)
                 if len(images) == 4:
-                    # 存入 Session State
                     st.session_state.generated_images = images
                     file_names = [f"cover_v{i+1}.png" for i in range(4)]
                     st.session_state.zip_data = create_zip(images, file_names)
@@ -253,7 +259,6 @@ if st.session_state.generated_images:
             st.image(images[1], use_column_width=True, caption="方案 02")
             st.image(images[3], use_column_width=True, caption="方案 04")
 
-    # 下载区
     st.markdown("---")
     d1, d2, d3 = st.columns([1, 2, 1])
     with d2:
