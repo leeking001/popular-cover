@@ -1,111 +1,158 @@
 import streamlit as st
 import requests
+from PIL import Image
+from io import BytesIO
+import math
 
 # --- 0. 核心配置 ---
-# 建议填入 Key，实现真正的一键生成
 INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec" 
 INTERNAL_MODEL = "google/gemini-3-pro-image-preview"
 API_URL = "https://api.360.cn/v1/images/generations"
 
 # --- 1. 页面样式 ---
-st.set_page_config(page_title="爆款封面一键生成", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="爆款封面一键生成", page_icon="⚡", layout="wide")
 st.markdown("""
 <style>
     #MainMenu, footer, header {visibility: hidden;}
-    .stTextInput>div>div>input {font-size: 1.2rem; text-align: center;}
-    .stButton>button {width: 100%; font-size: 1.2rem; padding: 0.8rem;}
+    .stButton>button {width: 100%; font-size: 1.2rem; padding: 0.8rem; background-color: #D50000; color: white;}
+    .success-text {color: green; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 逻辑处理 ---
-def parse_input(text):
-    if not text: return "", ""
-    parts = text.strip().split(' ', 1)
-    if len(parts) == 2:
-        return parts[0], parts[1]
-    return parts[0], ""
+# --- 2. 切图逻辑 (田字格切割) ---
+def slice_image_quadrant(image_url):
+    """
+    下载大图，切成 2x2 (田字格) 4张图
+    返回顺序：左上, 右上, 左下, 右下
+    """
+    try:
+        response = requests.get(image_url, timeout=30)
+        img = Image.open(BytesIO(response.content))
+        width, height = img.size
+        
+        mid_w = width // 2
+        mid_h = height // 2
+        
+        # 切割 4 张
+        # (left, top, right, bottom)
+        img_tl = img.crop((0, 0, mid_w, mid_h))       # 左上
+        img_tr = img.crop((mid_w, 0, width, mid_h))    # 右上
+        img_bl = img.crop((0, mid_h, mid_w, height))   # 左下
+        img_br = img.crop((mid_w, mid_h, width, height)) # 右下
+        
+        return [img_tl, img_tr, img_bl, img_br]
+    except:
+        return []
 
-def generate_cover(api_key, raw_text, size_opt, audience):
-    m_title, s_title = parse_input(raw_text)
-    if not s_title: s_title = " "
+# --- 3. 生成逻辑 (1调4) ---
+def generate_batch_quad(api_key, titles_chunk):
+    """
+    接收 1-4 个标题，生成一张拼图
+    """
+    # 补齐 4 个位置，如果不足 4 个，用 "Abstract background" 填充，避免 AI 乱画
+    padded_titles = titles_chunk + ["Abstract geometric background"] * (4 - len(titles_chunk))
     
-    size_map = {
-        "16:9 (视频)": "1024x576",
-        "3:4 (笔记)": "768x1024",
-        "4:3 (文章)": "1024x768"
-    }
-    size_str = size_map[size_opt]
-    ratio_desc = size_opt.split(' ')[0]
-
+    t1, t2, t3, t4 = padded_titles[0], padded_titles[1], padded_titles[2], padded_titles[3]
+    
+    # 核心 Prompt：强制 2x2 网格布局
     prompt = f"""
-    为主标题是<{m_title}>副标题是<{s_title}>的内容设计一张封面图，
-    尺寸为<{ratio_desc}>，
-    根据主题的受众（当前倾向：{audience}）生成一个写实风格人物特写形象，
-    例如男性受众就放女性人物，表情要对应主题，
-    人物形象跟文字穿插显示，整体风格要有高级感，
-    文字要有设计和排版，不要翻译或更改文字，
-    参考著名YouTube博主小lin说、影视飓风、MrBeast的视频封面
+    Create a 2x2 GRID split-screen image containing 4 distinct thumbnails.
+    Total Resolution: Maximum Possible (High Detail).
+    
+    [Quadrant 1 - Top Left]: YouTube thumbnail for "{t1}". High saturation, close-up.
+    [Quadrant 2 - Top Right]: YouTube thumbnail for "{t2}". Cinematic lighting.
+    [Quadrant 3 - Bottom Left]: YouTube thumbnail for "{t3}". Minimalist design.
+    [Quadrant 4 - Bottom Right]: YouTube thumbnail for "{t4}". Vivid colors.
+    
+    IMPORTANT: 
+    - Strict distinct borders between quadrants. 
+    - Do not bleed elements across borders.
+    - Each quadrant must be a complete image.
     """
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    
+    # 🔥 尝试请求 2048x2048 以获得更高清的 4K 效果
+    # 如果 API 不支持，它通常会自动降级或报错，如果报错改成 1024x1024
     payload = {
         "model": INTERNAL_MODEL,
         "prompt": prompt,
         "n": 1,
-        "size": size_str
+        "size": "2048x2048" # 这里先保守填 1024，如果你确定支持 2048 可修改
     }
 
     try:
-        # 🔥 关键修改：timeout 改为 120 秒 (2分钟)
-        # AI 画图很慢，必须给它足够的时间
         res = requests.post(API_URL, headers=headers, json=payload, timeout=120)
-        
         if res.status_code == 200:
             data = res.json()
             if 'data' in data and data['data']:
-                return data['data'][0]['url'], None
-            return None, "生成成功但无图片返回"
-        else:
-            return None, f"API报错: {res.status_code} - {res.text}"
-    except Exception as e:
-        return None, f"网络错误或超时: {str(e)}"
+                return data['data'][0]['url']
+    except:
+        pass
+    return None
 
-# --- 3. 极简界面 ---
-st.title("⚡ 爆款封面一键生成")
+# --- 4. 界面 UI ---
+st.title("⚡ 爆款封面一键生成 (批量工厂)")
+st.caption("极速流水线：系统将在后台自动合并任务，最大化产出效率。")
 
-user_input = st.text_input("输入标题 (主标题 空格 副标题)", placeholder="例如：月入过万 AI实战教程")
-
-c1, c2 = st.columns(2)
-with c1:
-    size_opt = st.selectbox("尺寸", ["16:9 (视频)", "3:4 (笔记)", "4:3 (文章)"])
-with c2:
-    audience = st.selectbox("受众", ["大众通用", "男性向", "女性向"])
+# 批量输入
+raw_text = st.text_area("请输入标题列表 (一行一个，建议一次输 4 的倍数)", height=200, 
+                       placeholder="Python入门\n减肥食谱\n杭州旅游\nAI赚钱\n...")
 
 final_key = INTERNAL_API_KEY
 if not final_key:
     final_key = st.text_input("API Key", type="password")
 
-if st.button("🚀 立即生成", type="primary"):
-    if not user_input:
-        st.toast("⚠️ 请输入标题")
+if st.button("🚀 启动超级流水线", type="primary"):
+    if not raw_text.strip():
+        st.warning("请先输入标题")
     elif not final_key:
-        st.toast("⚠️ 请输入 API Key")
+        st.warning("请输入 API Key")
     else:
-        # 提示语改得更有耐心一点
-        with st.spinner("AI 正在精心绘制中，通常需要 1 分钟，请耐心等待..."):
-            aud_map = {"大众通用": "通用受众", "男性向": "男性受众", "女性向": "女性受众"}
-            url, err = generate_cover(final_key, user_input, size_opt, aud_map[audience])
+        titles = [t.strip() for t in raw_text.split('\n') if t.strip()]
+        total = len(titles)
+        
+        # 按 4 个一组进行切分
+        # [A,B,C,D, E,F] -> [[A,B,C,D], [E,F]]
+        chunks = [titles[i:i + 4] for i in range(0, len(titles), 4)]
+        
+        st.info(f"收到 {total} 个任务，打包为 {len(chunks)} 次生成请求...")
+        
+        progress_bar = st.progress(0)
+        result_gallery = []
+        
+        for i, chunk in enumerate(chunks):
+            with st.spinner(f"正在处理第 {i+1} 批次 (包含 {len(chunk)} 个封面)..."):
+                # 调用接口
+                big_url = generate_batch_quad(final_key, chunk)
+                
+                if big_url:
+                    # 切割
+                    imgs = slice_image_quadrant(big_url)
+                    # 只取我们需要的前 n 张 (去掉补位的)
+                    valid_imgs = imgs[:len(chunk)]
+                    
+                    for idx, img in enumerate(valid_imgs):
+                        result_gallery.append((chunk[idx], img))
             
-            if url:
-                st.image(url, use_column_width=True)
-                st.markdown(f"""
-                    <a href="{url}" target="_blank" style="
-                        display: block; margin: 10px auto; text-align: center;
-                        background-color: #FF4B4B; color: white; 
-                        padding: 10px 20px; border-radius: 8px; 
-                        text-decoration: none; font-weight: bold;">
-                        📥 下载高清原图
-                    </a>
-                """, unsafe_allow_html=True)
-            else:
-                st.error(f"生成失败: {err}")
+            progress_bar.progress((i + 1) / len(chunks))
+            
+        st.success(f"✅ 生产完成！共产出 {len(result_gallery)} 张封面")
+        
+        # 展示结果 (4列布局)
+        cols = st.columns(4)
+        for idx, (title, img) in enumerate(result_gallery):
+            with cols[idx % 4]:
+                st.image(img, use_column_width=True)
+                st.caption(f"📄 {title}")
+                
+                # 下载
+                buf = BytesIO()
+                img.save(buf, format="PNG")
+                st.download_button(
+                    label="📥",
+                    data=buf.getvalue(),
+                    file_name=f"cover_{idx}.png",
+                    mime="image/png",
+                    key=f"dl_{idx}"
+                )
