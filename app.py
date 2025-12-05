@@ -6,7 +6,6 @@ import zipfile
 import json
 import os
 import time
-import hashlib
 import random
 import string
 
@@ -18,11 +17,9 @@ API_URL = "https://api.360.cn/v1/images/generations"
 # 数据库文件
 USER_DB = "users.json"
 CARD_DB = "cdkeys.json"
+FREE_QUOTA = 3  # 注册送3次
 
-# 运营配置
-FREE_QUOTA = 3  # 新用户注册送几次？
-
-# --- 1. 数据库管理系统 ---
+# --- 1. 数据库系统 (保持不变) ---
 def load_json(file_path, default={}):
     if not os.path.exists(file_path):
         with open(file_path, 'w') as f: json.dump(default, f)
@@ -34,25 +31,17 @@ def load_json(file_path, default={}):
 def save_json(file_path, data):
     with open(file_path, 'w') as f: json.dump(data, f, indent=4)
 
-# 用户相关
 def register_user(username, password):
     users = load_json(USER_DB)
-    if username in users:
-        return False, "用户已存在"
-    users[username] = {
-        "password": password,
-        "balance": FREE_QUOTA, # 注册送免费额度
-        "is_vip": False
-    }
+    if username in users: return False, "用户已存在"
+    users[username] = {"password": password, "balance": FREE_QUOTA}
     save_json(USER_DB, users)
-    return True, "注册成功！已赠送免费额度"
+    return True, "注册成功"
 
 def login_user(username, password):
     users = load_json(USER_DB)
-    if username not in users:
-        return False, "用户不存在"
-    if users[username]["password"] == password:
-        return True, users[username]
+    if username not in users: return False, "用户不存在"
+    if users[username]["password"] == password: return True, users[username]
     return False, "密码错误"
 
 def get_balance(username):
@@ -67,34 +56,17 @@ def update_balance(username, amount):
         return True
     return False
 
-# 卡密相关
-def generate_cards(count=10, value=10):
-    """生成一批卡密 (管理员用)"""
-    cards = load_json(CARD_DB)
-    new_cards = []
-    for _ in range(count):
-        # 生成随机卡密 VIP-XXXXX
-        code = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        cards[code] = {"value": value, "status": "unused"}
-        new_cards.append(code)
-    save_json(CARD_DB, cards)
-    return new_cards
-
 def redeem_card(username, code):
-    """用户兑换卡密"""
     cards = load_json(CARD_DB)
     if code in cards and cards[code]["status"] == "unused":
-        value = cards[code]["value"]
-        # 标记为已用
         cards[code]["status"] = "used"
         cards[code]["used_by"] = username
         save_json(CARD_DB, cards)
-        # 增加余额
-        update_balance(username, value)
-        return True, value
-    return False, "卡密无效或已使用"
+        update_balance(username, cards[code]["value"])
+        return True, cards[code]["value"]
+    return False, "无效卡密"
 
-# --- 2. 页面配置 ---
+# --- 2. 页面配置与 UI ---
 st.set_page_config(page_title="爆款封面工厂", page_icon="🔥", layout="wide")
 
 st.markdown("""
@@ -108,21 +80,28 @@ st.markdown("""
     }
     .sub-title { text-align: center; color: #888; margin-bottom: 30px; }
     .stTextInput input { background-color: #1E2329 !important; color: #fff !important; border: 1px solid #333 !important; }
+    
+    /* 登录框样式 */
+    .login-box {
+        background: #161B22; border: 1px solid #30363D; padding: 20px; border-radius: 10px; margin-top: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    
+    /* 按钮样式 */
     .stButton>button {
         width: 100%; font-weight: bold; border-radius: 8px; border: none;
         background: linear-gradient(90deg, #0061ff, #60efff); color: white;
+        height: 50px; font-size: 1.1rem;
     }
-    /* 侧边栏样式 */
+    
+    /* 侧边栏 */
     [data-testid="stSidebar"] { background-color: #161B22; border-right: 1px solid #333; }
-    .balance-box {
-        background: #21262D; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px; border: 1px solid #30363D;
-    }
-    .big-number { font-size: 2rem; font-weight: bold; color: #00C9FF; }
+    
     #MainMenu, footer, header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 核心生成逻辑 (保持不变) ---
+# --- 3. 核心逻辑 ---
 def process_hidden_logic(image_url):
     try:
         response = requests.get(image_url, timeout=60)
@@ -196,106 +175,93 @@ def generate_covers(api_key, raw_input, ratio_opt, audience_type):
         except Exception as e: return None, str(e)
     return None, "服务器繁忙"
 
-# --- 4. 界面逻辑 ---
+# --- 4. 趣味进度条逻辑 ---
+def simulate_progress():
+    """模拟有趣的加载过程"""
+    progress_text = st.empty()
+    my_bar = st.progress(0)
+    
+    steps = [
+        "🧠 正在分析爆款关键词...",
+        "🎨 正在匹配 MrBeast 配色方案...",
+        "📐 正在计算黄金分割构图...",
+        "💡 正在调整演播室灯光...",
+        "✨ 正在进行 4K 像素渲染...",
+        "🚀 正在打包最终成果..."
+    ]
+    
+    # 模拟前 80% 的进度
+    for i in range(80):
+        time.sleep(0.02) # 快速跑动
+        my_bar.progress(i + 1)
+        # 每隔 15% 换一句话
+        if i % 15 == 0:
+            step_index = (i // 15) % len(steps)
+            progress_text.text(steps[step_index])
+            
+    return my_bar, progress_text
+
+# --- 5. 主程序逻辑 ---
 
 # Session 初始化
 if 'user' not in st.session_state: st.session_state.user = None
 if 'generated_images' not in st.session_state: st.session_state.generated_images = None
 if 'zip_data' not in st.session_state: st.session_state.zip_data = None
+if 'show_login' not in st.session_state: st.session_state.show_login = False # 控制登录框显示
 
-# === 登录/注册页 ===
-if not st.session_state.user:
-    st.markdown('<div class="neon-title">爆款封面工厂</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-title">登录即可免费领取 3 次生成额度</div>', unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        tab1, tab2 = st.tabs(["登录", "注册"])
-        
-        with tab1:
-            login_user_input = st.text_input("用户名", key="l_u")
-            login_pass_input = st.text_input("密码", type="password", key="l_p")
-            if st.button("登录"):
-                success, msg = login_user(login_user_input, login_pass_input)
-                if success:
-                    st.session_state.user = login_user_input
-                    st.success("登录成功！")
-                    st.rerun()
-                else:
-                    st.error(msg)
-        
-        with tab2:
-            reg_user_input = st.text_input("设置用户名", key="r_u")
-            reg_pass_input = st.text_input("设置密码", type="password", key="r_p")
-            if st.button("注册并领取免费额度"):
-                if len(reg_user_input) < 3:
-                    st.warning("用户名太短")
-                else:
-                    success, msg = register_user(reg_user_input, reg_pass_input)
-                    if success:
-                        st.success(msg)
-                        st.session_state.user = reg_user_input
-                        st.rerun()
-                    else:
-                        st.error(msg)
-
-# === 主应用页 ===
-else:
-    # --- 侧边栏：个人中心 ---
-    with st.sidebar:
+# 侧边栏：仅在登录后显示详细信息，未登录时显示简单提示
+with st.sidebar:
+    if st.session_state.user:
         st.markdown(f"### 👋 欢迎, {st.session_state.user}")
-        
-        # 余额显示
         balance = get_balance(st.session_state.user)
-        st.markdown(f"""
-        <div class="balance-box">
-            <div style="color:#888; font-size:0.9rem;">剩余生成次数</div>
-            <div class="big-number">{balance}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("剩余次数", f"{balance} 次")
         
-        # 充值区
-        st.markdown("#### 💎 会员充值")
-        # 这里放你的发卡网链接
-        st.markdown("[👉 点击购买充值卡 (自动发货)](https://www.baidu.com)", unsafe_allow_html=True)
-        
-        redeem_code = st.text_input("输入兑换码", placeholder="VIP-XXXXX")
-        if st.button("立即充值"):
-            success, val = redeem_card(st.session_state.user, redeem_code.strip())
-            if success:
-                st.balloons()
-                st.success(f"充值成功！增加 {val} 次")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error(val)
+        st.markdown("---")
+        st.markdown("#### 💎 充值中心")
+        st.markdown("[👉 点击购买卡密](https://www.baidu.com)", unsafe_allow_html=True)
+        code = st.text_input("输入卡密", placeholder="VIP-XXXX")
+        if st.button("兑换"):
+            succ, msg = redeem_card(st.session_state.user, code.strip())
+            if succ: st.success(f"成功！余额 +{msg}"); time.sleep(1); st.rerun()
+            else: st.error(msg)
         
         st.markdown("---")
         if st.button("退出登录"):
             st.session_state.user = None
+            st.session_state.show_login = False
             st.rerun()
-            
-        # --- 管理员后门 (实际部署时建议删除或隐藏) ---
-        with st.expander("管理员后台"):
-            admin_pwd = st.text_input("管理密码", type="password")
-            if admin_pwd == "admin888": # 自己改个复杂的密码
-                if st.button("生成 5 个 10次卡"):
-                    cards = generate_cards(5, 10)
-                    st.write(cards)
+    else:
+        st.info("👋 欢迎使用！\n\n请在右侧输入标题，点击生成。\n新用户注册即送 3 次免费额度。")
 
-    # --- 主界面 ---
-    st.markdown('<div class="neon-title">爆款封面一键生成</div>', unsafe_allow_html=True)
+# 主界面
+st.markdown('<div class="neon-title">爆款封面工厂</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">AI 智能设计 · 自动排版 · 批量出图</div>', unsafe_allow_html=True)
+
+c1, c2 = st.columns([2, 1])
+with c1:
+    user_input = st.text_area("输入标题", height=180, placeholder="示例：\n月入过万 AI实战\n(主副标题空格隔开)")
+with c2:
+    ratio = st.selectbox("比例", ["16:9 (视频)", "3:4 (笔记)", "1:1 (通用)"])
+    audience = st.selectbox("受众", ["大众", "男性向", "女性向"])
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        user_input = st.text_area("输入标题", height=180, placeholder="示例：\n月入过万 AI实战\n(主副标题空格隔开)")
-    with c2:
-        ratio = st.selectbox("比例", ["16:9 (视频)", "3:4 (笔记)", "1:1 (通用)"])
-        audience = st.selectbox("受众", ["大众", "男性向", "女性向"])
-        st.markdown("<br>", unsafe_allow_html=True)
-        gen_btn = st.button("🚀 立即生成 (消耗1次)")
+    # 核心按钮逻辑
+    if st.session_state.user:
+        btn_text = "🚀 立即生成 (消耗1次)"
+    else:
+        btn_text = "🚀 立即生成 (需登录)"
+        
+    click_gen = st.button(btn_text)
 
-    if gen_btn:
+# 逻辑分支
+if click_gen:
+    # 情况1：未登录 -> 弹出登录框
+    if not st.session_state.user:
+        st.session_state.show_login = True
+    
+    # 情况2：已登录 -> 执行生成
+    else:
+        balance = get_balance(st.session_state.user)
         if balance <= 0:
             st.error("⚠️ 您的免费额度已用完，请在左侧充值！")
         elif not user_input.strip():
@@ -303,33 +269,83 @@ else:
         elif not INTERNAL_API_KEY:
             st.error("管理员未配置 API Key")
         else:
-            with st.spinner("AI 正在生成..."):
-                big_url, err = generate_covers(INTERNAL_API_KEY, user_input, ratio, audience)
-                if big_url:
-                    # 扣费
-                    update_balance(st.session_state.user, -1)
-                    st.toast("✅ 扣费成功")
-                    
-                    images = process_hidden_logic(big_url)
-                    if len(images) == 4:
-                        st.session_state.generated_images = images
-                        fnames = [f"cover_{i}.png" for i in range(4)]
-                        st.session_state.zip_data = create_zip(images, fnames)
-                        st.rerun()
-                else:
-                    st.error(f"失败: {err}")
+            # 启动趣味进度条
+            my_bar, progress_txt = simulate_progress()
+            
+            # 真实 API 调用
+            progress_txt.text("⚡ 正在连接云端算力中心...")
+            big_url, err = generate_covers(INTERNAL_API_KEY, user_input, ratio, audience)
+            
+            # 进度条跑满
+            my_bar.progress(100)
+            progress_txt.text("✅ 生成完成！")
+            time.sleep(0.5)
+            my_bar.empty() # 清除进度条
+            progress_txt.empty()
 
-    # 结果展示
-    if st.session_state.generated_images:
-        st.markdown("---")
-        imgs = st.session_state.generated_images
-        c_a, c_b = st.columns(2)
-        with c_a:
-            st.image(imgs[0], use_column_width=True)
-            st.image(imgs[2], use_column_width=True)
-        with c_b:
-            st.image(imgs[1], use_column_width=True)
-            st.image(imgs[3], use_column_width=True)
+            if big_url:
+                update_balance(st.session_state.user, -1)
+                images = process_hidden_logic(big_url)
+                if len(images) == 4:
+                    st.session_state.generated_images = images
+                    fnames = [f"cover_{i}.png" for i in range(4)]
+                    st.session_state.zip_data = create_zip(images, fnames)
+                    st.rerun()
+            else:
+                st.error(f"失败: {err}")
+
+# 后置登录框 (显示在按钮下方)
+if not st.session_state.user and st.session_state.show_login:
+    st.markdown("---")
+    st.markdown("##### 🔒 请先登录以保存您的作品")
+    
+    with st.container():
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        tab1, tab2 = st.tabs(["登录", "注册 (送3次)"])
         
-        if st.session_state.zip_data:
-            st.download_button("📦 下载全部 (.ZIP)", st.session_state.zip_data, "covers.zip", "application/zip")
+        with tab1:
+            l_u = st.text_input("用户名", key="l_u")
+            l_p = st.text_input("密码", type="password", key="l_p")
+            if st.button("登录账号"):
+                succ, msg = login_user(l_u, l_p)
+                if succ:
+                    st.session_state.user = l_u
+                    st.session_state.show_login = False
+                    st.success("登录成功！正在跳转...")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        
+        with tab2:
+            r_u = st.text_input("设置用户名", key="r_u")
+            r_p = st.text_input("设置密码", type="password", key="r_p")
+            if st.button("注册并领取福利"):
+                if len(r_u) < 3: st.warning("用户名太短")
+                else:
+                    succ, msg = register_user(r_u, r_p)
+                    if succ:
+                        st.session_state.user = r_u
+                        st.session_state.show_login = False
+                        st.success("注册成功！3次免费额度已到账")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# 结果展示
+if st.session_state.generated_images:
+    st.markdown("---")
+    st.markdown("##### ✅ 生成结果")
+    imgs = st.session_state.generated_images
+    c_a, c_b = st.columns(2)
+    with c_a:
+        st.image(imgs[0], use_column_width=True, caption="方案 A")
+        st.image(imgs[2], use_column_width=True, caption="方案 C")
+    with c_b:
+        st.image(imgs[1], use_column_width=True, caption="方案 B")
+        st.image(imgs[3], use_column_width=True, caption="方案 D")
+    
+    if st.session_state.zip_data:
+        st.download_button("📦 下载全部 (.ZIP)", st.session_state.zip_data, "covers.zip", "application/zip")
