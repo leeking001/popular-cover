@@ -11,7 +11,7 @@ import string
 import pandas as pd # 用于展示数据表格
 
 # --- 0. 核心配置 ---
-INTERNAL_API_KEY = "fk10575412.5JSLUZXFqFJ_qzxvMVOjuP6i9asC6LOHab8b61ec"  # 🔴 必填：你的 360 Key
+INTERNAL_API_KEY = ""  # 🔴 必填：你的 360 Key
 INTERNAL_MODEL = "google/gemini-3-pro-image-preview"
 API_URL = "https://api.360.cn/v1/images/generations"
 
