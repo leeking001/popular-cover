@@ -9,6 +9,7 @@ import time
 import random
 import string
 import pandas as pd # 用于展示数据表格
+from requests_oauthlib import OAuth2Session
 
 # --- 0. 核心配置 ---
 INTERNAL_API_KEY = ""  # 🔴 必填：你的 360 Key
@@ -19,6 +20,11 @@ API_URL = "https://api.360.cn/v1/images/generations"
 USER_DB = "users.json"
 CARD_DB = "cdkeys.json"
 FREE_QUOTA = 3
+
+# Google OAuth 配置（需提前在环境变量或 secrets 中配置）
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "") or st.secrets.get("google_client_id", "") if hasattr(st, "secrets") else ""
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "") or st.secrets.get("google_client_secret", "") if hasattr(st, "secrets") else ""
+GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "") or st.secrets.get("google_redirect_uri", "") if hasattr(st, "secrets") else ""
 
 # 🔴 管理员账号 (隐形后门)
 ADMIN_USER = "admin"
@@ -40,18 +46,30 @@ def register_user(username, password):
     if username == ADMIN_USER: return False, "该用户名不可用" # 防止有人注册管理员号
     users = load_json(USER_DB)
     if username in users: return False, "用户已存在"
-    users[username] = {"password": password, "balance": FREE_QUOTA}
+    users[username] = {"password": password, "balance": FREE_QUOTA, "auth": "password", "name": username}
     save_json(USER_DB, users)
     return True, "注册成功"
+
+def register_or_update_google_user(email, name):
+    if email == ADMIN_USER: return False, "该邮箱不可用"
+    users = load_json(USER_DB)
+    if email not in users:
+        users[email] = {"password": None, "balance": FREE_QUOTA, "auth": "google", "name": name or email}
+    else:
+        users[email]["auth"] = users[email].get("auth", "google")
+        users[email]["name"] = name or users[email].get("name", email)
+        users[email].setdefault("balance", FREE_QUOTA)
+    save_json(USER_DB, users)
+    return True, "登录成功"
 
 def login_check(username, password):
     # 1. 先检查是不是管理员
     if username == ADMIN_USER and password == ADMIN_PASS:
         return True, "admin"
-    
+
     # 2. 再检查普通用户
     users = load_json(USER_DB)
-    if username in users and users[username]["password"] == password:
+    if username in users and users[username].get("password") == password:
         return True, "user"
     
     return False, None
@@ -88,6 +106,85 @@ def redeem_card(username, code):
         update_balance(username, cards[code]["value"])
         return True, cards[code]["value"]
     return False, "无效卡密"
+
+
+# --- 1.1 Google 登录相关 ---
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+GOOGLE_SCOPES = ["openid", "email", "profile"]
+
+
+def google_oauth_enabled():
+    return all([GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI])
+
+
+def get_google_session(state=None, token=None):
+    return OAuth2Session(
+        GOOGLE_CLIENT_ID,
+        redirect_uri=GOOGLE_REDIRECT_URI,
+        scope=GOOGLE_SCOPES,
+        state=state,
+        token=token,
+    )
+
+
+def get_google_login_url():
+    if not google_oauth_enabled():
+        return None, "Google 登录未配置，请联系管理员"
+    oauth = get_google_session()
+    authorization_url, state = oauth.authorization_url(
+        GOOGLE_AUTH_URL,
+        access_type="offline",
+        prompt="select_account",
+    )
+    st.session_state.oauth_state = state
+    return authorization_url, None
+
+
+def handle_google_callback():
+    if not google_oauth_enabled():
+        return
+    params = st.experimental_get_query_params()
+    if "code" not in params or "state" not in params:
+        return
+    code = params.get("code", [None])[0]
+    state = params.get("state", [None])[0]
+    if not code or not state:
+        return
+    if st.session_state.oauth_state and state != st.session_state.oauth_state:
+        st.warning("Google 登录 state 校验失败，请重试")
+        st.experimental_set_query_params()
+        return
+    try:
+        oauth = get_google_session(state=state)
+        token = oauth.fetch_token(
+            GOOGLE_TOKEN_URL,
+            client_secret=GOOGLE_CLIENT_SECRET,
+            code=code,
+        )
+        user_info_resp = oauth.get(GOOGLE_USERINFO_URL)
+        if user_info_resp.status_code != 200:
+            st.error("无法获取 Google 用户信息")
+            return
+        info = user_info_resp.json()
+        email = info.get("email")
+        name = info.get("name", email)
+        if not email:
+            st.error("Google 登录缺少邮箱信息")
+            return
+        succ, msg = register_or_update_google_user(email, name)
+        if succ:
+            st.session_state.user = email
+            st.session_state.role = "user"
+            st.session_state.show_login = False
+            st.success("Google 登录成功")
+            st.experimental_set_query_params()
+            st.rerun()
+        else:
+            st.error(msg)
+    except Exception as e:
+        st.error(f"Google 登录失败: {e}")
 
 # --- 2. 页面配置 ---
 st.set_page_config(page_title="爆款封面工厂", page_icon="🔥", layout="wide")
@@ -201,6 +298,10 @@ if 'role' not in st.session_state: st.session_state.role = None # admin 或 user
 if 'generated_images' not in st.session_state: st.session_state.generated_images = None
 if 'zip_data' not in st.session_state: st.session_state.zip_data = None
 if 'show_login' not in st.session_state: st.session_state.show_login = False
+if 'oauth_state' not in st.session_state: st.session_state.oauth_state = None
+
+# 预处理 Google 回调
+handle_google_callback()
 
 # ==========================================
 # 🔴 场景 A：管理员后台 (只有登录 admin 才能见)
@@ -317,6 +418,12 @@ else:
             st.markdown('<div class="login-box">', unsafe_allow_html=True)
             tab1, tab2 = st.tabs(["登录", "注册 (送3次)"])
             with tab1:
+                if google_oauth_enabled():
+                    login_url, err = get_google_login_url()
+                    if login_url:
+                        st.link_button("使用 Google 登录", login_url, type="primary")
+                    elif err:
+                        st.warning(err)
                 l_u = st.text_input("用户名", key="l_u")
                 l_p = st.text_input("密码", type="password", key="l_p")
                 if st.button("登录账号"):
